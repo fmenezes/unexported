@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build and package
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          EXT=""
+          [ "$GOOS" = "windows" ] && EXT=".exe"
+
+          go build -trimpath -ldflags="-s -w -X main.version=${{ github.ref_name }}" -o "unexported${EXT}" .
+
+          ARCHIVE="unexported-${{ github.ref_name }}-${GOOS}-${GOARCH}"
+          mkdir "$ARCHIVE"
+          cp "unexported${EXT}" README.md LICENSE "$ARCHIVE/"
+
+          if [ "$GOOS" = "windows" ]; then
+            zip -r "${ARCHIVE}.zip" "$ARCHIVE"
+          else
+            tar czf "${ARCHIVE}.tar.gz" "$ARCHIVE"
+          fi
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: unexported-*.{tar.gz,zip}
