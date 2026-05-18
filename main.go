@@ -146,14 +146,15 @@ func loadAndValidatePackages(cfg *packages.Config, patterns []string) ([]*packag
 		return nil, fmt.Errorf("loading packages: %w", err)
 	}
 
+	valid := pkgs[:0:0]
 	for _, pkg := range pkgs {
-		if len(pkg.Errors) == 0 {
+		if len(pkg.Errors) > 0 {
+			fmt.Fprintf(os.Stderr, "unexported: skipping %s: %v\n", pkg.ID, pkg.Errors[0])
 			continue
 		}
-		return nil, fmt.Errorf("%v", pkg.Errors[0])
+		valid = append(valid, pkg)
 	}
-
-	return pkgs, nil
+	return valid, nil
 }
 
 func findingsFromDetailed(detailed []analyzer.DetailedFinding) []analyzer.Finding {
