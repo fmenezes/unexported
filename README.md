@@ -63,19 +63,6 @@ func Exported() {} //nolint:unexported  ← suppresses this declaration only
 func AlsoSuppressed() {}
 ```
 
-## golangci-lint plugin
-
-Import the `plugin` package as a custom golangci-lint analyzer plugin:
-
-```go
-// plugin/main.go in your lint runner
-import "github.com/fmenezes/unexported/plugin"
-
-var AnalyzerPlugin = plugin.Analyzer
-```
-
-The plugin accepts the same `-unexported.exclude` flag via golangci-lint's custom-analyzer flag passthrough.
-
 ## How it works
 
 Two passes over the fully type-checked package graph:
