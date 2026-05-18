@@ -7,7 +7,7 @@ Unlike `staticcheck`'s `unused` (U1000), which deliberately skips exported symbo
 ## Install
 
 ```bash
-go install github.com/OWNER/unexported@latest
+go install github.com/fmenezes/unexported@latest
 ```
 
 ## Usage
@@ -23,10 +23,12 @@ unexported -json ./... | jq .
 
 | Flag | Description |
 |------|-------------|
+| `-fix` | Rename reported exported symbols to their unexported equivalents in place |
 | `-tags` | Comma-separated build tags (e.g. `e2e,integration`) |
 | `-json` | Emit findings as JSON objects, one per line |
 | `-exclude` | Comma-separated package path prefixes to skip (e.g. `example.com/m/generated`) |
 | `-max` | Maximum number of findings to show; `0` means unlimited (default `0`) |
+| `-version` | Print version and exit |
 
 ## Output
 
@@ -67,7 +69,7 @@ Import the `plugin` package as a custom golangci-lint analyzer plugin:
 
 ```go
 // plugin/main.go in your lint runner
-import "github.com/OWNER/unexported/plugin"
+import "github.com/fmenezes/unexported/plugin"
 
 var AnalyzerPlugin = plugin.Analyzer
 ```
