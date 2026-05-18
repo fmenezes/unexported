@@ -1,6 +1,7 @@
 package analyzer_test
 
 import (
+	"go/token"
 	"testing"
 
 	"golang.org/x/tools/go/packages"
@@ -314,6 +315,102 @@ func Exported() {}
 	findings := analyzer.Analyze(pkgs, analyzer.Options{Exclude: []string{"example.com/m/pkga"}})
 	if containsFinding(findings, "Exported") {
 		t.Errorf("did not expect finding for Exported (package excluded), got %v", findingNames(findings))
+	}
+}
+
+// Test: interface type referenced externally but method never directly called → no finding on method
+// (exercises the interfaceOf path where the method itself has no external callers)
+func TestInterfaceMethodProtectedByExternalTypeReference(t *testing.T) {
+	pkgs := loadPackages(t, []packagestest.Module{{
+		Name: "example.com/m",
+		Files: map[string]interface{}{
+			"pkga/a.go": `package pkga
+
+type Doer interface {
+	Do()
+}
+`,
+			"pkgb/b.go": `package pkgb
+
+import "example.com/m/pkga"
+
+func Accept(d pkga.Doer) {}
+`,
+		},
+	}})
+
+	findings := analyzer.Analyze(pkgs, analyzer.Options{})
+	if containsFinding(findings, "Do") {
+		t.Errorf("did not expect finding for Do (interface Doer is externally referenced even though Do is never directly called), got %v", findingNames(findings))
+	}
+}
+
+// Test: //nolint in a file with no declarations → no panic, no findings
+func TestNolintFileWithNoDeclarations(t *testing.T) {
+	pkgs := loadPackages(t, []packagestest.Module{{
+		Name: "example.com/m",
+		Files: map[string]interface{}{
+			"pkga/a.go": `package pkga
+
+//nolint:unexported
+`,
+		},
+	}})
+
+	findings := analyzer.Analyze(pkgs, analyzer.Options{})
+	if len(findings) != 0 {
+		t.Errorf("expected no findings for package with no declarations, got %v", findingNames(findings))
+	}
+}
+
+// Test: exported field on unexported struct → no finding
+func TestExportedFieldOnUnexportedStruct(t *testing.T) {
+	pkgs := loadPackages(t, []packagestest.Module{{
+		Name: "example.com/m",
+		Files: map[string]interface{}{
+			"pkga/a.go": `package pkga
+
+type myStruct struct {
+	ExportedField string
+}
+`,
+		},
+	}})
+
+	findings := analyzer.Analyze(pkgs, analyzer.Options{})
+	if containsFinding(findings, "ExportedField") {
+		t.Errorf("did not expect finding for ExportedField (parent type myStruct is unexported), got %v", findingNames(findings))
+	}
+}
+
+// Test: exported method on unexported type → no finding
+func TestExportedMethodOnUnexportedType(t *testing.T) {
+	pkgs := loadPackages(t, []packagestest.Module{{
+		Name: "example.com/m",
+		Files: map[string]interface{}{
+			"pkga/a.go": `package pkga
+
+type myStruct struct{}
+
+func (m myStruct) ExportedMethod() {}
+`,
+		},
+	}})
+
+	findings := analyzer.Analyze(pkgs, analyzer.Options{})
+	if containsFinding(findings, "ExportedMethod") {
+		t.Errorf("did not expect finding for ExportedMethod (receiver type myStruct is unexported), got %v", findingNames(findings))
+	}
+}
+
+// Test: DedupeDetailedFindings drops findings with identical file/line/col/name.
+func TestDedupeDetailedFindingsSkipsDuplicates(t *testing.T) {
+	pos := token.Position{Filename: "a.go", Line: 1, Column: 1}
+	f := analyzer.DetailedFinding{Finding: analyzer.Finding{Pos: pos, ObjName: "Foo", PkgName: "pkg"}}
+
+	result := analyzer.DedupeDetailedFindings([]analyzer.DetailedFinding{f, f, f})
+	if len(result) != 1 {
+		t.Errorf("DedupeDetailedFindings returned %d items, want 1", len(result))
 	}
 }
 

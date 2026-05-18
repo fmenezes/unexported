@@ -11,12 +11,14 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	"github.com/fmenezes/unexported/internal/analyzer"
+	"github.com/fmenezes/unexported/internal/fix"
 )
 
 var version = "dev"
 
 func main() {
 	jsonOutput := flag.Bool("json", false, "emit findings as JSON objects, one per line")
+	fixFlag := flag.Bool("fix", false, "apply autofix by renaming reported exported symbols to unexported names")
 	tags := flag.String("tags", "", "comma-separated list of build tags (e.g. e2e,integration)")
 	excludeFlag := flag.String("exclude", "", "comma-separated package path prefixes to skip")
 	maxFlag := flag.Int("max", 0, "maximum number of findings to show (0 = unlimited)")
@@ -51,19 +53,10 @@ func main() {
 		cfg.BuildFlags = []string{"-tags=" + *tags}
 	}
 
-	pkgs, err := packages.Load(cfg, patterns...)
+	pkgs, err := loadAndValidatePackages(cfg, patterns)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "unexported: loading packages: %v\n", err)
+		fmt.Fprintf(os.Stderr, "unexported: %v\n", err)
 		os.Exit(2)
-	}
-
-	for _, pkg := range pkgs {
-		for _, e := range pkg.Errors {
-			fmt.Fprintf(os.Stderr, "unexported: %v\n", e)
-		}
-		if len(pkg.Errors) > 0 {
-			os.Exit(2)
-		}
 	}
 
 	var excludeList []string
@@ -71,7 +64,30 @@ func main() {
 		excludeList = strings.Split(*excludeFlag, ",")
 	}
 
-	findings := analyzer.Analyze(pkgs, analyzer.Options{Exclude: excludeList})
+	detailed := analyzer.DedupeDetailedFindings(analyzer.AnalyzeDetailed(pkgs, analyzer.Options{Exclude: excludeList}))
+
+	if *fixFlag && len(detailed) > 0 {
+		applied, skipped, err := fix.ApplyFixes(pkgs, detailed)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "unexported: applying fixes: %v\n", err)
+			os.Exit(2)
+		}
+		if applied > 0 {
+			fmt.Fprintf(os.Stderr, "unexported: applied %d rename(s)\n", applied)
+		}
+		if skipped > 0 {
+			fmt.Fprintf(os.Stderr, "unexported: skipped %d rename(s) due to naming conflicts\n", skipped)
+		}
+
+		pkgs, err = loadAndValidatePackages(cfg, patterns)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "unexported: %v\n", err)
+			os.Exit(2)
+		}
+		detailed = analyzer.DedupeDetailedFindings(analyzer.AnalyzeDetailed(pkgs, analyzer.Options{Exclude: excludeList}))
+	}
+
+	findings := findingsFromDetailed(detailed)
 	if len(findings) == 0 {
 		os.Exit(0)
 	}
@@ -123,3 +139,28 @@ func main() {
 
 	os.Exit(1)
 }
+
+func loadAndValidatePackages(cfg *packages.Config, patterns []string) ([]*packages.Package, error) {
+	pkgs, err := packages.Load(cfg, patterns...)
+	if err != nil {
+		return nil, fmt.Errorf("loading packages: %w", err)
+	}
+
+	for _, pkg := range pkgs {
+		if len(pkg.Errors) == 0 {
+			continue
+		}
+		return nil, fmt.Errorf("%v", pkg.Errors[0])
+	}
+
+	return pkgs, nil
+}
+
+func findingsFromDetailed(detailed []analyzer.DetailedFinding) []analyzer.Finding {
+	findings := make([]analyzer.Finding, 0, len(detailed))
+	for _, f := range detailed {
+		findings = append(findings, f.Finding)
+	}
+	return findings
+}
+
